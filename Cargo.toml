@@ -1,0 +1,16 @@
+[package]
+name = "date_range"
+version = "0.1.0"
+edition = "2024"
+authors = ["Jeff Stano <jeff@stano.com>"]
+description = "A collection of date range types"
+license = "MIT"
+repository = "https://github.com/jstano/date-range-rs"
+readme = "README.md"
+keywords = ["date-range"]
+
+[dependencies]
+chrono = "0.4.41"
+rstest = "0.26.1"
+bigdecimal = "0.4.8"
+num-traits = "0.2.19"
