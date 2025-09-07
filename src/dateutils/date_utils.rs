@@ -177,7 +177,9 @@ pub fn duration_in_fractional_hours_bd(start: NaiveDateTime, end: NaiveDateTime)
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bigdecimal::FromPrimitive as _;
     use chrono::NaiveDate;
+    use num_traits::ToPrimitive;
     use rstest::rstest;
 
     #[test]
@@ -319,4 +321,134 @@ mod tests {
         assert_eq!(result.month(), expected_month, "Failed for {:?}", input);
         assert_eq!(result.day(), expected_day, "Failed for {:?}", input);
     }
+
+    #[test]
+    fn test_with_year_safe() {
+        let feb29_2028 = NaiveDate::from_ymd_opt(2028, 2, 29).unwrap();
+        // Non-leap year fallback to Feb 28
+        let y2029 = with_year_safe(feb29_2028, 2029);
+        assert_eq!(y2029, NaiveDate::from_ymd_opt(2029, 2, 28).unwrap());
+        // Leap year remains Feb 29
+        let y2032 = with_year_safe(feb29_2028, 2032);
+        assert_eq!(y2032, NaiveDate::from_ymd_opt(2032, 2, 29).unwrap());
+        // A normal date remains same day
+        let aug20_2025 = NaiveDate::from_ymd_opt(2025, 8, 20).unwrap();
+        let y2030 = with_year_safe(aug20_2025, 2030);
+        assert_eq!(y2030, NaiveDate::from_ymd_opt(2030, 8, 20).unwrap());
+    }
+
+    #[test]
+    fn test_earliest_and_latest() {
+        use chrono::NaiveDate;
+        use chrono::NaiveDateTime;
+        let t1: NaiveDateTime = NaiveDate::from_ymd_opt(2025, 8, 20).unwrap().and_hms_opt(10, 0, 0).unwrap();
+        let t2: NaiveDateTime = NaiveDate::from_ymd_opt(2025, 8, 20).unwrap().and_hms_opt(12, 0, 0).unwrap();
+        assert_eq!(earliest(t1, t2), t1);
+        assert_eq!(earliest(t2, t1), t1);
+        assert_eq!(earliest(t1, t1), t1);
+        assert_eq!(latest(t1, t2), t2);
+        assert_eq!(latest(t2, t1), t2);
+        assert_eq!(latest(t1, t1), t1);
+    }
+
+    #[test]
+    fn test_earliest_latest_opt() {
+        use chrono::NaiveDate;
+        use chrono::NaiveDateTime;
+        let t1: NaiveDateTime = NaiveDate::from_ymd_opt(2025, 8, 20).unwrap().and_hms_opt(10, 0, 0).unwrap();
+        let t2: NaiveDateTime = NaiveDate::from_ymd_opt(2025, 8, 20).unwrap().and_hms_opt(12, 0, 0).unwrap();
+        // None combinations
+        assert_eq!(earliest_opt(None, None), None);
+        assert_eq!(earliest_opt(Some(t1), None), Some(t1));
+        assert_eq!(earliest_opt(None, Some(t2)), Some(t2));
+        assert_eq!(earliest_opt(Some(t1), Some(t2)), Some(t1));
+        assert_eq!(earliest_opt(Some(t2), Some(t1)), Some(t1));
+        assert_eq!(earliest_opt(Some(t1), Some(t1)), Some(t1));
+        // latest_opt mirrors >= behavior
+        assert_eq!(latest_opt(None, None), None);
+        assert_eq!(latest_opt(Some(t1), None), Some(t1));
+        assert_eq!(latest_opt(None, Some(t2)), Some(t2));
+        assert_eq!(latest_opt(Some(t1), Some(t2)), Some(t2));
+        assert_eq!(latest_opt(Some(t2), Some(t1)), Some(t2));
+        assert_eq!(latest_opt(Some(t1), Some(t1)), Some(t1));
+    }
+
+    #[test]
+    fn test_durations_whole_units() {
+        use chrono::NaiveDate;
+        use chrono::NaiveDateTime;
+        let start: NaiveDateTime = NaiveDate::from_ymd_opt(2025, 8, 20).unwrap().and_hms_opt(10, 0, 0).unwrap();
+        let end: NaiveDateTime = NaiveDate::from_ymd_opt(2025, 8, 20).unwrap().and_hms_opt(12, 34, 56).unwrap();
+        assert_eq!(duration_in_hours(start, end), 2); // 2h 34m -> truncates to 2
+        assert_eq!(duration_in_minutes(start, end), 154); // 2h*60 + 34m = 154
+        assert_eq!(duration_in_seconds(start, end), 9296); // 2*3600 + 34*60 + 56 = 9296
+        // Negative range truncation toward zero due to integer division semantics
+        assert_eq!(duration_in_hours(end, start), -2);
+        assert_eq!(duration_in_minutes(end, start), -154);
+        assert_eq!(duration_in_seconds(end, start), -9296);
+        // Zero duration
+        assert_eq!(duration_in_hours(start, start), 0);
+        assert_eq!(duration_in_minutes(start, start), 0);
+        assert_eq!(duration_in_seconds(start, start), 0);
+    }
+
+    #[test]
+    fn test_fractional_seconds_rounding() {
+        use chrono::NaiveDate;
+        use chrono::NaiveDateTime;
+        let s: NaiveDateTime = NaiveDate::from_ymd_opt(2025, 8, 20).unwrap().and_hms_milli_opt(10, 0, 0, 0).unwrap();
+        let e1 = NaiveDate::from_ymd_opt(2025, 8, 20).unwrap().and_hms_milli_opt(10, 0, 1, 234).unwrap();
+        // 1.234 seconds -> rounded to 4 sig figs stays 1.234
+        let v1 = duration_in_fractional_seconds(s, e1);
+        assert!((v1 - 1.234).abs() < 1e-12, "{}", v1);
+        // 0.0012345 should round to 0.001235 with 4 sig figs; use 0.001 seconds for exact
+        let e2 = s + chrono::Duration::microseconds(1000); // 0.001 s
+        let v2 = duration_in_fractional_seconds(s, e2);
+        assert!((v2 - 0.001).abs() < 1e-12, "{}", v2);
+        // Negative direction should keep sign and rounding
+        let v3 = duration_in_fractional_seconds(e1, s);
+        assert!((v3 + 1.234).abs() < 1e-12, "{}", v3);
+    }
+
+    #[test]
+    fn test_fractional_hours() {
+        use chrono::NaiveDate;
+        use chrono::NaiveDateTime;
+        let s: NaiveDateTime = NaiveDate::from_ymd_opt(2025, 8, 20).unwrap().and_hms_opt(10, 0, 0).unwrap();
+        let e = NaiveDate::from_ymd_opt(2025, 8, 20).unwrap().and_hms_opt(12, 30, 0).unwrap();
+        let v = duration_in_fractional_hours(s, e);
+        assert!((v - 2.5).abs() < 1e-12, "{}", v);
+        let vn = duration_in_fractional_hours(e, s);
+        assert!((vn + 2.5).abs() < 1e-12, "{}", vn);
+    }
+
+    #[test]
+    fn test_bigdecimal_fractional_durations() {
+        use chrono::NaiveDate;
+        use chrono::NaiveDateTime;
+        let s: NaiveDateTime = NaiveDate::from_ymd_opt(2025, 8, 20).unwrap().and_hms_milli_opt(10, 0, 0, 0).unwrap();
+        let e = NaiveDate::from_ymd_opt(2025, 8, 20).unwrap().and_hms_milli_opt(10, 1, 2, 500).unwrap(); // 62.5 seconds
+        let secs_bd = duration_in_fractional_seconds_bd(s, e);
+        // Compare via numeric equality by converting to f64 (safe here due to simple value)
+        assert!((secs_bd.to_f64().unwrap() - 62.5).abs() < 1e-12);
+        let hours_bd = duration_in_fractional_hours_bd(s, e);
+        // The implementation computes hours from whole seconds (truncating 62.5s -> 62s)
+        let expected_hours_bd = BigDecimal::from(62) / BigDecimal::from(3600);
+        assert_eq!(hours_bd, expected_hours_bd);
+    }
+    
+    #[test]
+    fn test_round_to_sig_figs_zero_branch() {
+        // Exact zero should return zero regardless of sig figs
+        assert_eq!(round_to_sig_figs(0.0, 1), 0.0);
+        assert_eq!(round_to_sig_figs(0.0, 4), 0.0);
+        assert_eq!(round_to_sig_figs(0.0, 10), 0.0);
+        // Negative zero input should also return canonical 0.0
+        let neg_zero: f64 = -0.0;
+        let r = round_to_sig_figs(neg_zero, 4);
+        assert_eq!(r, 0.0);
+        // Ensure it's finite (not NaN/Inf)
+        assert!(r.is_finite());
+    }
+
 }

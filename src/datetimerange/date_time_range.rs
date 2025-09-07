@@ -217,6 +217,8 @@ mod tests {
         let a = DateTimeRange::of(dt(2023, 1, 1, 9, 0, 0), dt(2023, 1, 1, 10, 0, 0));
         let b = DateTimeRange::of(dt(2023, 1, 1, 8, 0, 0), dt(2023, 1, 1, 9, 30, 0));
         let c = DateTimeRange::of(dt(2023, 1, 1, 9, 0, 0), dt(2023, 1, 1, 10, 0, 0));
+        let d_shorter_end = DateTimeRange::of(dt(2023, 1, 1, 9, 0, 0), dt(2023, 1, 1, 9, 30, 0));
+        let e_longer_end = DateTimeRange::of(dt(2023, 1, 1, 9, 0, 0), dt(2023, 1, 1, 10, 30, 0));
 
         // Eq compares bounds
         assert_eq!(a, c);
@@ -226,6 +228,10 @@ mod tests {
         let mut v = vec![a.clone(), b.clone()];
         v.sort();
         assert_eq!(v, vec![b, a.clone()]);
+
+        // When starts are equal, ordering falls back to end
+        assert!(d_shorter_end < a); // same start, earlier end
+        assert!(e_longer_end > a);  // same start, later end
 
         // Hash consistent with Eq (basic smoke test: equal values hash the same)
         let mut ha = DefaultHasher::new();

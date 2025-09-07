@@ -1,18 +1,22 @@
-[tasks.coverage]
-description = "Run code coverage (OS-specific)"
+[tasks.coverage-linux]
+script = ["cargo tarpaulin --workspace --all-features --tests --out Html"]
+
+[tasks.coverage-mac]
 script = [
     '''
-    if [[ "$CARGO_MAKE_OS" == "linux" ]]; then
-        cargo tarpaulin --workspace --all-features --tests --out Html
-    elif [[ "$CARGO_MAKE_OS" == "mac" ]]; then
-        CARGO_INCREMENTAL=0 RUSTFLAGS="-Cinstrument-coverage" LLVM_PROFILE_FILE="project-%p-%m.profraw" cargo test
-        grcov . -s . --binary-path ./target/debug/ -t html --branch --ignore-not-existing -o target/coverage/
-    elif [[ "$CARGO_MAKE_OS" == "windows" ]]; then
-        set CARGO_INCREMENTAL=0
-        set RUSTFLAGS=-Cinstrument-coverage
-        set LLVM_PROFILE_FILE=project-%p-%m.profraw
-        cargo test
-        grcov . -s . --binary-path ./target/debug/ -t html --branch --ignore-not-existing -o target/coverage/
-    fi
+    export CARGO_INCREMENTAL=0
+    export RUSTFLAGS="-Cinstrument-coverage"
+    export LLVM_PROFILE_FILE="target/coverage/profraw/project-%p-%m.profraw"
+    cargo clean
+    cargo test --all --workspace
+    grcov . -s . --binary-path ./target/debug/ -t html --branch --ignore-not-existing -o target/coverage/
+    echo "Coverage report generated at target/coverage/html/index.html"
     '''
+]
+
+[tasks.coverage]
+description = "Run OS-specific coverage"
+run_task = [
+    { name = "coverage-linux", condition = { platforms = ["linux"] } },
+    { name = "coverage-mac", condition = { platforms = ["mac"] } }
 ]
